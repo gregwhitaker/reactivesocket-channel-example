@@ -1,5 +1,6 @@
 package com.github.gregwhitaker.rschannel;
 
+import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -8,14 +9,19 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.reactivesocket.ConnectionSetupPayload;
+import io.reactivesocket.DefaultReactiveSocket;
 import io.reactivesocket.Frame;
 import io.reactivesocket.Payload;
+import io.reactivesocket.ReactiveSocket;
 import io.reactivesocket.RequestHandler;
+import io.reactivesocket.netty.tcp.client.ClientTcpDuplexConnection;
 import io.reactivesocket.netty.tcp.server.ReactiveSocketServerHandler;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import rx.RxReactiveStreams;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -48,6 +54,8 @@ public class Server {
     }
 
     private void startServer(InetSocketAddress local, InetSocketAddress remote) throws Exception {
+        new RequestHandler.Builder().withRequestChannel()
+
         ServerBootstrap localServer = new ServerBootstrap();
         localServer.group(new NioEventLoopGroup(1), new NioEventLoopGroup(4))
                 .channel(NioServerSocketChannel.class)
@@ -57,70 +65,57 @@ public class Server {
                     protected void initChannel(Channel ch) throws Exception {
                         ChannelPipeline pipeline = ch.pipeline();
                         pipeline.addLast(ReactiveSocketServerHandler.create((setupPayload, reactiveSocket) -> {
-                            return new RequestHandler() {
-                                @Override
-                                public Publisher<Payload> handleRequestResponse(Payload payload) {
-                                    return null;
-                                }
+                            return new RequestHandler.Builder().withRequestChannel(payloadPublisher -> {
+                                return new Publisher<Payload>() {
+                                    @Override
+                                    public void subscribe(Subscriber<? super Payload> s) {
+                                        s.onNext(new Payload() {
+                                            @Override
+                                            public ByteBuffer getData() {
+                                                return ByteBuffer.wrap(String.format("[%s] - YO", name).getBytes());
+                                            }
 
-                                @Override
-                                public Publisher<Payload> handleRequestStream(Payload payload) {
-                                    return null;
-                                }
-
-                                @Override
-                                public Publisher<Payload> handleSubscription(Payload payload) {
-                                    return null;
-                                }
-
-                                @Override
-                                public Publisher<Void> handleFireAndForget(Payload payload) {
-                                    return null;
-                                }
-
-                                @Override
-                                public Publisher<Payload> handleChannel(Payload initialPayload, Publisher<Payload> inputs) {
-                                    return s -> {
-                                        Timer timer = new Timer("ping");
-                                        timer.schedule(new PingTask(name, s), RANDOM.nextInt((3000 - 1) + 1) + 1, 1000);
-                                    };
-                                }
-
-                                @Override
-                                public Publisher<Void> handleMetadataPush(Payload payload) {
-                                    return null;
-                                }
-                            };
+                                            @Override
+                                            public ByteBuffer getMetadata() {
+                                                return Frame.NULL_BYTEBUFFER;
+                                            }
+                                        });
+                                    }
+                                };
+                            }).build();
                         }));
                     }
                 });
 
         localServer.bind(local).sync();
-    }
 
-    static class PingTask extends TimerTask {
+        Publisher<ClientTcpDuplexConnection> publisher = ClientTcpDuplexConnection
+                .create(remote, new NioEventLoopGroup(1));
 
-        private Subscriber<? super Payload> s;
-        private final String message;
+        ClientTcpDuplexConnection duplexConnection = RxReactiveStreams.toObservable(publisher).toBlocking().last();
+        ReactiveSocket reactiveSocket = DefaultReactiveSocket.fromClientConnection(duplexConnection,
+                ConnectionSetupPayload.create("UTF-8", "UTF-8"), t -> t.printStackTrace());
 
-        public PingTask(String name, Subscriber<? super Payload> s) {
-            this.s = s;
-            this.message = String.format("[%s] - Ping", name);
-        }
+        reactiveSocket.startAndWait();
 
-        @Override
-        public void run() {
-            s.onNext(new Payload() {
-                @Override
-                public ByteBuffer getData() {
-                    return ByteBuffer.wrap(message.getBytes());
-                }
+        Timer timer = new Timer();
+        timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                reactiveSocket.requestChannel(s -> {
+                    s.onNext(new Payload() {
+                        @Override
+                        public ByteBuffer getData() {
+                            return ByteBuffer.wrap(String.format("[%s] - YO", name).getBytes());
+                        }
 
-                @Override
-                public ByteBuffer getMetadata() {
-                    return Frame.NULL_BYTEBUFFER;
-                }
-            });
-        }
+                        @Override
+                        public ByteBuffer getMetadata() {
+                            return Frame.NULL_BYTEBUFFER;
+                        }
+                    });
+                });
+            }
+        }, RANDOM.nextInt((3000 - 1) + 1) + 1, 1000);
     }
 }
