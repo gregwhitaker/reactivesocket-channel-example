@@ -1,6 +1,5 @@
 package com.github.gregwhitaker.rschannel;
 
-import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -54,8 +53,6 @@ public class Server {
     }
 
     private void startServer(InetSocketAddress local, InetSocketAddress remote) throws Exception {
-        new RequestHandler.Builder().withRequestChannel()
-
         ServerBootstrap localServer = new ServerBootstrap();
         localServer.group(new NioEventLoopGroup(1), new NioEventLoopGroup(4))
                 .channel(NioServerSocketChannel.class)
