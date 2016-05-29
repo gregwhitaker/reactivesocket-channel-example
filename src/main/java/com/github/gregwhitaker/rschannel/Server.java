@@ -53,8 +53,8 @@ public class Server {
     }
 
     private void startServer(InetSocketAddress local, InetSocketAddress remote) throws Exception {
-        ServerBootstrap localServer = new ServerBootstrap();
-        localServer.group(new NioEventLoopGroup(1), new NioEventLoopGroup(4))
+        ServerBootstrap server = new ServerBootstrap();
+        server.group(new NioEventLoopGroup(1), new NioEventLoopGroup(4))
                 .channel(NioServerSocketChannel.class)
                 .handler(new LoggingHandler(LogLevel.INFO))
                 .childHandler(new ChannelInitializer() {
@@ -69,8 +69,9 @@ public class Server {
                                         s.onNext(new Payload() {
                                             @Override
                                             public ByteBuffer getData() {
-                                                return ByteBuffer.wrap(String.format("[%s] - YO", name).getBytes());
-                                            }
+                                                String message = String.format("[%s] - SUP", name);
+                                                LOG.info(message);
+                                                return ByteBuffer.wrap(message.getBytes());                                            }
 
                                             @Override
                                             public ByteBuffer getMetadata() {
@@ -84,7 +85,7 @@ public class Server {
                     }
                 });
 
-        localServer.bind(local).sync();
+        server.bind(local).sync();
 
         Publisher<ClientTcpDuplexConnection> publisher = ClientTcpDuplexConnection
                 .create(remote, new NioEventLoopGroup(1));
@@ -103,7 +104,9 @@ public class Server {
                     s.onNext(new Payload() {
                         @Override
                         public ByteBuffer getData() {
-                            return ByteBuffer.wrap(String.format("[%s] - YO", name).getBytes());
+                            String message = String.format("[%s] - YO", name);
+                            LOG.info(message);
+                            return ByteBuffer.wrap(message.getBytes());
                         }
 
                         @Override
