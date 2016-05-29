@@ -1,0 +1,19 @@
+group 'com.github.gregwhitaker'
+version '1.0-SNAPSHOT'
+
+apply plugin: 'java'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven { url 'https://dl.bintray.com/reactivesocket/ReactiveSocket' }
+}
+
+dependencies {
+    compile 'io.netty:netty-all:4.1.0.CR7'
+    compile 'io.reactivesocket:reactivesocket-netty:0.1.9'
+
+    testCompile 'junit:junit:4.11'
+}
