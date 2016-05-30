@@ -21,26 +21,40 @@ import io.reactivesocket.netty.tcp.server.ReactiveSocketServerHandler;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import rx.Observable;
 import rx.RxReactiveStreams;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-public class Server {
-    private static final Logger LOG = LoggerFactory.getLogger(Server.class);
-    private static final Random RANDOM = new Random(System.currentTimeMillis());
+/**
+ * Creates a simple server that communicates with other servers over two reactive socket channels.  Each server
+ * creates one channel that is sending data bi-directionally.  This means there are actually two channels each server
+ * is interacting with over a single reactivesocket; servers act as both a client and a server for one another.
+ *
+ * Server1 initiates a channel with Server2 making Server1 the client:
+ *      [server1] --> YO 1 --> [server2]
+ *      [server1] <-- SUP  <-- [server2]
 
+ *
+ * Server2 initiates a channel with Server1 making Server2 the client:
+ *      [server2] --> YO 1 --> [server1]
+ *      [server2] <-- SUP  <-- [server1]
+ */
+public class Server {
     final String name;
 
     public Server(String name) {
         this.name = name;
     }
 
+    /**
+     * Starts the server.
+     *
+     * @param local the address and port that this server instance binds to
+     * @param remote the remote address and port that this server will communicate with when acting as a client
+     */
     public void start(InetSocketAddress local, InetSocketAddress remote) {
         Thread thread = new Thread(() -> {
             Server server = new Server(name);
@@ -67,19 +81,25 @@ public class Server {
                         pipeline.addLast(ReactiveSocketServerHandler.create((setupPayload, reactiveSocket) -> {
                             return new RequestHandler.Builder().withRequestChannel(payloadPublisher -> {
 
-                                // This is the gift of the publisher from the server side (on the client)
+                                // Creates the (server) publisher that the client will use to get the subscription
+                                // needed to communicate with the server.
                                 return new Publisher<Payload>() {
 
                                     @Override
                                     public void subscribe(Subscriber<? super Payload> s) {
 
-                                        // This is the server side subscriber (on the client)
+                                        // Creates the (server) subscriber that the client will use to communicate
+                                        // with the server.
                                         Subscriber<Payload> subscriber = new Subscriber<Payload>() {
                                             Subscription subscription;
 
                                             @Override
                                             public void onSubscribe(Subscription s) {
                                                 subscription = s;
+
+                                                // Having to request 2 pieces of data at a time because there is a bug
+                                                // in the reactivesocket channel.  This is actually only requesting one
+                                                // piece of data because of the bug causing it to be off by one.
                                                 subscription.request(2);
                                             }
 
@@ -92,7 +112,7 @@ public class Server {
                                                 buffer.readBytes(bytes);
                                                 System.out.println("[" + name + "] --> " + new String(bytes));
 
-                                                // This talks back to the client
+                                                // The server takes the client's subscriber and sends a response to it.
                                                 s.onNext(new Payload() {
                                                     @Override
                                                     public ByteBuffer getData() {
@@ -105,6 +125,8 @@ public class Server {
                                                     }
                                                 });
 
+                                                // Need to keep requesting more data otherwise the server
+                                                // will stop responding to events.
                                                 subscription.request(1);
                                             }
 
@@ -119,6 +141,8 @@ public class Server {
                                             }
                                         };
 
+                                        // Create a subscription on the client's publisher so that the server
+                                        // can recieve data from the client.
                                         payloadPublisher.subscribe(subscriber);
                                     }
                                 };
@@ -139,6 +163,7 @@ public class Server {
 
         reactiveSocket.startAndWait();
 
+        // Defining what payload will be sent to the remote server
         Publisher<Payload> requestStream = RxReactiveStreams
                 .toPublisher(Observable
                         .interval(1_000, TimeUnit.MILLISECONDS)
@@ -157,9 +182,11 @@ public class Server {
                                 }
                         ));
 
+        // Sending the payload to the remote server
         Publisher<Payload> responseStream = reactiveSocket
                 .requestChannel(requestStream);
 
+        // Printing the response from the remote server
         RxReactiveStreams
                 .toObservable(responseStream)
                 .forEach(payload -> {
