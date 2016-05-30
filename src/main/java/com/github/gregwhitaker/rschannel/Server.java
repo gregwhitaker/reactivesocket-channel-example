@@ -88,15 +88,15 @@ public class Server {
                                                 ByteBuf buffer = Unpooled.buffer(payload.getData().capacity());
                                                 buffer.writeBytes(payload.getData());
 
-                                                LOG.info(String.format("[%s] --> " + new String(buffer.array()), name));
                                                 byte[] bytes = new byte[buffer.capacity()];
                                                 buffer.readBytes(bytes);
-                                                System.out.println(new String(bytes));
+                                                System.out.println("[" + name + "] --> " + new String(bytes));
+
                                                 // This talks back to the client
                                                 s.onNext(new Payload() {
                                                     @Override
                                                     public ByteBuffer getData() {
-                                                        return ByteBuffer.wrap("SUP".getBytes());
+                                                        return ByteBuffer.wrap(("SUP").getBytes());
                                                     }
 
                                                     @Override
@@ -165,7 +165,7 @@ public class Server {
                 .forEach(payload -> {
                     byte[] bytes = new byte[payload.getData().capacity()];
                     payload.getData().get(bytes);
-                    System.out.println(new String(bytes));
+                    System.out.println(new String(bytes) + " <-- [" + name + "]");
                 });
     }
 }
