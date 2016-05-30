@@ -16,10 +16,10 @@ public class ExampleRunner {
     public static void main(String... args) throws Exception {
         Server server1 = new Server("server1");
         server1.start(new InetSocketAddress("127.0.0.1", 8080),
-                new InetSocketAddress("127.0.0.1", 8081));
+                new InetSocketAddress("127.0.0.2", 8080));
 
         Server server2 = new Server("server2");
-        server2.start(new InetSocketAddress("127.0.0.1", 8081),
+        server2.start(new InetSocketAddress("127.0.0.2", 8080),
                 new InetSocketAddress("127.0.0.1", 8080));
 
         Thread.currentThread().join();

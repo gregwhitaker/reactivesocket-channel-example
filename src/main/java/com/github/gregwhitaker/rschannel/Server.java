@@ -1,6 +1,8 @@
 package com.github.gregwhitaker.rschannel;
 
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
@@ -18,15 +20,16 @@ import io.reactivesocket.netty.tcp.client.ClientTcpDuplexConnection;
 import io.reactivesocket.netty.tcp.server.ReactiveSocketServerHandler;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import rx.Observable;
 import rx.RxReactiveStreams;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Random;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.concurrent.TimeUnit;
 
 public class Server {
     private static final Logger LOG = LoggerFactory.getLogger(Server.class);
@@ -43,7 +46,7 @@ public class Server {
             Server server = new Server(name);
             try {
                 server.startServer(local, remote);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 throw new RuntimeException(e);
             }
         });
@@ -52,7 +55,7 @@ public class Server {
         thread.start();
     }
 
-    private void startServer(InetSocketAddress local, InetSocketAddress remote) throws Exception {
+    private void startServer(InetSocketAddress local, InetSocketAddress remote) throws Throwable {
         ServerBootstrap server = new ServerBootstrap();
         server.group(new NioEventLoopGroup(1), new NioEventLoopGroup(4))
                 .channel(NioServerSocketChannel.class)
@@ -63,23 +66,63 @@ public class Server {
                         ChannelPipeline pipeline = ch.pipeline();
                         pipeline.addLast(ReactiveSocketServerHandler.create((setupPayload, reactiveSocket) -> {
                             return new RequestHandler.Builder().withRequestChannel(payloadPublisher -> {
+
+                                // This is the gift of the publisher from the server side (on the client)
                                 return new Publisher<Payload>() {
+
                                     @Override
                                     public void subscribe(Subscriber<? super Payload> s) {
-                                        s.onNext(new Payload() {
-                                            @Override
-                                            public ByteBuffer getData() {
-                                                String message = String.format("[%s] - SUP", name);
-                                                LOG.info(message);
-                                                return ByteBuffer.wrap(message.getBytes());                                            }
+
+                                        // This is the server side subscriber (on the client)
+                                        Subscriber<Payload> subscriber = new Subscriber<Payload>() {
+                                            Subscription subscription;
 
                                             @Override
-                                            public ByteBuffer getMetadata() {
-                                                return Frame.NULL_BYTEBUFFER;
+                                            public void onSubscribe(Subscription s) {
+                                                subscription = s;
+                                                subscription.request(2);
                                             }
-                                        });
+
+                                            @Override
+                                            public void onNext(Payload payload) {
+                                                ByteBuf buffer = Unpooled.buffer(payload.getData().capacity());
+                                                buffer.writeBytes(payload.getData());
+
+                                                LOG.info(String.format("[%s] --> " + new String(buffer.array()), name));
+                                                byte[] bytes = new byte[buffer.capacity()];
+                                                buffer.readBytes(bytes);
+                                                System.out.println(new String(bytes));
+                                                // This talks back to the client
+                                                s.onNext(new Payload() {
+                                                    @Override
+                                                    public ByteBuffer getData() {
+                                                        return ByteBuffer.wrap("SUP".getBytes());
+                                                    }
+
+                                                    @Override
+                                                    public ByteBuffer getMetadata() {
+                                                        return Frame.NULL_BYTEBUFFER;
+                                                    }
+                                                });
+
+                                                subscription.request(1);
+                                            }
+
+                                            @Override
+                                            public void onError(Throwable t) {
+                                                s.onError(t);
+                                            }
+
+                                            @Override
+                                            public void onComplete() {
+
+                                            }
+                                        };
+
+                                        payloadPublisher.subscribe(subscriber);
                                     }
                                 };
+
                             }).build();
                         }));
                     }
@@ -96,26 +139,33 @@ public class Server {
 
         reactiveSocket.startAndWait();
 
-        Timer timer = new Timer();
-        timer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                reactiveSocket.requestChannel(s -> {
-                    s.onNext(new Payload() {
-                        @Override
-                        public ByteBuffer getData() {
-                            String message = String.format("[%s] - YO", name);
-                            LOG.info(message);
-                            return ByteBuffer.wrap(message.getBytes());
-                        }
+        Publisher<Payload> requestStream = RxReactiveStreams
+                .toPublisher(Observable
+                        .interval(1_000, TimeUnit.MILLISECONDS)
+                        .onBackpressureDrop()
+                        .map(i ->
+                                new Payload() {
+                                    @Override
+                                    public ByteBuffer getData() {
+                                        return ByteBuffer.wrap(("YO " + i).getBytes());
+                                    }
 
-                        @Override
-                        public ByteBuffer getMetadata() {
-                            return Frame.NULL_BYTEBUFFER;
-                        }
-                    });
+                                    @Override
+                                    public ByteBuffer getMetadata() {
+                                        return Frame.NULL_BYTEBUFFER;
+                                    }
+                                }
+                        ));
+
+        Publisher<Payload> responseStream = reactiveSocket
+                .requestChannel(requestStream);
+
+        RxReactiveStreams
+                .toObservable(responseStream)
+                .forEach(payload -> {
+                    byte[] bytes = new byte[payload.getData().capacity()];
+                    payload.getData().get(bytes);
+                    System.out.println(new String(bytes));
                 });
-            }
-        }, RANDOM.nextInt((3000 - 1) + 1) + 1, 1000);
     }
 }
