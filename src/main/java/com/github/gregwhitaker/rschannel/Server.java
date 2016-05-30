@@ -180,7 +180,8 @@ public class Server {
                                         return Frame.NULL_BYTEBUFFER;
                                     }
                                 }
-                        ));
+                        )
+                );
 
         // Sending the payload to the remote server
         Publisher<Payload> responseStream = reactiveSocket
