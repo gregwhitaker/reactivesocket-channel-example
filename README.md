@@ -1,6 +1,4 @@
-reactivesocket-channel-example
-===
-
+# reactivesocket-channel-example
 [![Build Status](https://travis-ci.org/gregwhitaker/reactivesocket-channel-example.svg?branch=master)](https://travis-ci.org/gregwhitaker/reactivesocket-channel-example)
 
 This example shows you how to open a bi-directional communications channel between applications using [Reactive Sockets](http://reactivesocket.io/).
@@ -8,14 +6,14 @@ This example shows you how to open a bi-directional communications channel betwe
 The example starts two applications which both operate as a client and server.  Each application opens a single bi-directional channel 
 that they use to push messages to the other application and receive responses to those messages.
 
-##Running the Example
+## Running the Example
 The example can be run using the following gradle command:
 
 ```
 $ ./gradlew run
 ```
 
-##License
+## License
 Copyright 2016 Greg Whitaker
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
